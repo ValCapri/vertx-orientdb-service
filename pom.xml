@@ -53,14 +53,16 @@
         <tinkerpop.blueprints.version>2.5.0</tinkerpop.blueprints.version>
         <tinkerpop.gremlin.version>2.4.0</tinkerpop.gremlin.version>
         <gremlin.groovy.version>2.4.0</gremlin.groovy.version>
-
+        <javac.target.version>1.6</javac.target.version>
+        <orientdb.version>2.0-M2</orientdb.version>
+        <blueprints.version>2.6.0</blueprints.version>
         <!-- Blueprints / Neo4J -->
         <blueprints.neo4j.version>2.4.0</blueprints.neo4j.version>
         <neo4j.version>1.9.3</neo4j.version>
         
         <!-- Blueprints / OrientDB -->
-        <blueprints.orientdb.version>2.4.0</blueprints.orientdb.version>
-        <orientdb.client.version>1.7.8</orientdb.client.version>
+        <blueprints.orientdb.version>2.5.0</blueprints.orientdb.version>
+        <orientdb.client.version>2.0-M2</orientdb.client.version>
 
         <vertx.testtools.version>2.0.0-final</vertx.testtools.version>
         <vertx.rxjava.version>1.0.0-beta1-SNAPSHOT</vertx.rxjava.version>
@@ -129,7 +131,8 @@
             <version>${gremlin.groovy.version}</version>
             <scope>compile</scope>
         </dependency>
-        
+
+
         <!-- Add dependencies for your Graph database here, as well as its Tinkerpop implementation. -->
         <dependency>
             <groupId>com.tinkerpop.blueprints</groupId>
@@ -146,9 +149,9 @@
         
         <!-- Additional Graph database for compatibility testing only. -->
         <dependency>
-            <groupId>com.tinkerpop.blueprints</groupId>
-            <artifactId>blueprints-orient-graph</artifactId>
-            <version>${blueprints.orientdb.version}</version>
+            <groupId>com.orientechnologies</groupId>
+            <artifactId>orientdb-graphdb</artifactId>
+            <version>${orientdb.client.version}</version>
             <scope>compile</scope>
         </dependency>
         <dependency>
@@ -157,8 +160,24 @@
             <version>${orientdb.client.version}</version>
             <scope>compile</scope>
         </dependency>
-            
-                
+        <dependency>
+            <groupId>com.orientechnologies</groupId>
+            <artifactId>orientdb-core</artifactId>
+            <version>${orientdb.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.tinkerpop.blueprints</groupId>
+            <artifactId>blueprints-test</artifactId>
+            <version>${blueprints.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.tinkerpop.blueprints</groupId>
+            <artifactId>blueprints-core</artifactId>
+            <version>${blueprints.version}</version>
+        </dependency>
+
         <!--Test dependencies -->
         <dependency>
             <groupId>junit</groupId>

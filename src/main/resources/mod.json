@@ -22,11 +22,11 @@
         //
         // Change this to use your own database url (local or remote). 
         // Defaults to standard Tinkerpop database (assumes running server from <OrientDB-location>/bin)
-        "blueprints.orientdb.url": "plocal:../databases/tinkerpop",
+        "blueprints.orientdb.url": "remote:localhost/rd",
         
         // Create a user by editing <OrientDB-location>/config/orientdb-server-config.xml user section.
         "blueprints.orientdb.username": "admin",
-        "blueprints.orientdb.password": "admin@orientdb",
+        "blueprints.orientdb.password": "admin",
         
         // Tinkerpop Graphson mode to use in message formats by default (can be overridden).
         // Supported values are NORMAL, COMPACT, EXTENDED

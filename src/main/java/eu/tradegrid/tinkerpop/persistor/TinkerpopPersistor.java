@@ -16,11 +16,13 @@
 
 package eu.tradegrid.tinkerpop.persistor;
 
-import java.io.IOException;
-import java.io.UnsupportedEncodingException;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-
+import com.tinkerpop.blueprints.*;
+import com.tinkerpop.blueprints.impls.orient.OrientGraph;
+import com.tinkerpop.blueprints.impls.orient.OrientGraphFactory;
+import com.tinkerpop.gremlin.groovy.Gremlin;
+import com.tinkerpop.pipes.Pipe;
+import com.tinkerpop.pipes.util.iterators.SingleIterator;
+import eu.tradegrid.tinkerpop.persistor.util.JsonUtility;
 import org.apache.commons.configuration.Configuration;
 import org.apache.commons.configuration.MapConfiguration;
 import org.vertx.java.busmods.BusModBase;
@@ -30,19 +32,10 @@ import org.vertx.java.core.json.EncodeException;
 import org.vertx.java.core.json.JsonArray;
 import org.vertx.java.core.json.JsonObject;
 
-import com.tinkerpop.blueprints.Edge;
-import com.tinkerpop.blueprints.Element;
-import com.tinkerpop.blueprints.Graph;
-import com.tinkerpop.blueprints.GraphFactory;
-import com.tinkerpop.blueprints.KeyIndexableGraph;
-import com.tinkerpop.blueprints.Parameter;
-import com.tinkerpop.blueprints.TransactionalGraph;
-import com.tinkerpop.blueprints.Vertex;
-import com.tinkerpop.gremlin.groovy.Gremlin;
-import com.tinkerpop.pipes.Pipe;
-import com.tinkerpop.pipes.util.iterators.SingleIterator;
-
-import eu.tradegrid.tinkerpop.persistor.util.JsonUtility;
+import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Tinkerpop Persistor Bus Module
@@ -105,9 +98,11 @@ public class TinkerpopPersistor extends BusModBase implements Handler<Message<Js
             return;
         }
         
-        final Graph graph;
+        final OrientGraph graph;
         try {
-            graph = GraphFactory.open(tinkerpopConfig);
+           // graph = GraphFactory.open(tinkerpopConfig);
+            OrientGraphFactory factory = new OrientGraphFactory("remote:localhost/rd","admin","admin");
+            graph=factory.getTx();
         } catch (RuntimeException e) {
             sendError(message, "Cannot open Graph using Tinkerpop configuration");
             return;
@@ -270,7 +265,7 @@ public class TinkerpopPersistor extends BusModBase implements Handler<Message<Js
             logger.debug("Added Vertex with Id: " + vertex.getId().toString());
         }
 
-        JsonObject reply = new JsonObject().putValue("_id", vertex.getId());
+        JsonObject reply = new JsonObject().putValue("_id", vertex.getId().toString());
         try {
             sendOK(message, reply);
         } catch (EncodeException e) {
