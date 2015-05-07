@@ -1,0 +1,76 @@
+compileJava {
+    options.compilerArgs += ["-processor", "io.vertx.codegen.CodeGenProcessor"]
+    options.compilerArgs += ["-AoutputDirectory=${projectDir}/src/main"]
+}
+
+ext {
+    vertxVersion = '3.0.0-SNAPSHOT'
+    slf4jVersion = '1.7.12'
+    junitVersion = '4.12'
+    jsonUnitTestVersion = '1.5.3'
+    commonsLangVersion = "3.3.2"
+    commonsIOVersion = '2.4'
+    rxJavaVersion = '1.0.10'
+
+    // TinkerPop Blueprint
+    tinkerpopBlueprintsVersion = '2.6.0'
+    tinkerpopGremlinVersion = '2.6.0'
+    gremlinGroovyVersion = '2.6.0'
+    blueprintsVersion = '2.6.0'
+
+    // Blueprints / Neo4J
+    //blueprintsNeo4jVersion = '2.6.0'
+    //neo4jVersion = '2.2.1'
+
+    // Blueprints / OrientDB
+    blueprintsOrientdbVersion = '2.4.0'
+    orientdbVersion = '2.0.8'
+}
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+    maven {
+        url = 'http://oss.sonatype.org/content/repositories/snapshots/'
+    }
+}
+
+dependencies {
+    compile "io.vertx:vertx-core:$vertxVersion"
+    compile "io.vertx:vertx-hazelcast:$vertxVersion"
+    compile "io.vertx:vertx-service-proxy:$vertxVersion"
+    compile "io.vertx:vertx-service-factory:$vertxVersion"
+    compile "io.vertx:vertx-codegen:$vertxVersion"
+    compile "io.vertx:vertx-docgen:$vertxVersion"
+    compile "io.vertx:vertx-metrics:$vertxVersion"
+    compile "io.vertx:vertx-reactive-streams:$vertxVersion"
+    compile "io.vertx:vertx-auth-service:$vertxVersion"
+    compile "io.vertx:vertx-apex:$vertxVersion"
+
+    //Dependencies required for Tinkerpop Blueprints and Gremlin compiled queries
+    compile "com.tinkerpop.blueprints:blueprints-core:$tinkerpopBlueprintsVersion"
+    compile "com.tinkerpop.gremlin:gremlin-java:$tinkerpopGremlinVersion"
+    compile "com.tinkerpop.gremlin:gremlin-groovy:$gremlinGroovyVersion"
+
+
+    // Add dependencies for your Graph database here, as well as its Tinkerpop implementation
+    //compile "com.tinkerpop.blueprints:blueprints-neo4j2-graph:$blueprintsNeo4jVersion"
+    //compile "org.neo4j:neo4j:$neo4jVersion"
+
+    // Additional Graph database for compatibility testing only
+    compile "com.orientechnologies:orientdb-graphdb:$orientdbVersion"
+    compile "com.orientechnologies:orientdb-client:$orientdbVersion"
+    compile "com.orientechnologies:orientdb-core:$orientdbVersion"
+
+    testCompile "com.tinkerpop.blueprints:blueprints-test:$blueprintsVersion"
+    compile "com.tinkerpop.blueprints:blueprints-core:$blueprintsVersion"
+
+    // Test dependencies -->
+    testCompile "io.vertx:vertx-rx-java:$vertxVersion"
+    testCompile "io.reactivex:rxjava:$rxJavaVersion"
+    testCompile "commons-io:commons-io:$commonsIOVersion"
+
+    testCompile "io.vertx:vertx-unit:$vertxVersion"
+    testCompile "io.vertx:vertx-core:$vertxVersion:tests"
+    testCompile "junit:junit:$junitVersion"
+}

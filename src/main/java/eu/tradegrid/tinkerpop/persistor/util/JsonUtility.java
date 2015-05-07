@@ -23,11 +23,11 @@ import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
 import java.util.List;
 
+import io.vertx.core.json.JsonArray;
+import io.vertx.core.json.JsonObject;
 import org.codehaus.jettison.json.JSONArray;
 import org.codehaus.jettison.json.JSONException;
 import org.codehaus.jettison.json.JSONObject;
-import org.vertx.java.core.json.JsonArray;
-import org.vertx.java.core.json.JsonObject;
 
 import com.tinkerpop.blueprints.Edge;
 import com.tinkerpop.blueprints.Element;
@@ -65,7 +65,7 @@ public class JsonUtility {
             graphJsonResult = os.toString("UTF-8");
         }
         
-        return new JsonObject().putObject("graph", new JsonObject(graphJsonResult));
+        return new JsonObject().put("graph", new JsonObject(graphJsonResult));
     }
     
     public void deserializeGraph(Graph graph, JsonObject graphJson) 

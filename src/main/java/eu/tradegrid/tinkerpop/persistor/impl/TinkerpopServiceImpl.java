@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package eu.tradegrid.tinkerpop.persistor;
+package eu.tradegrid.tinkerpop.persistor.impl;
 
 import com.tinkerpop.blueprints.*;
 import com.tinkerpop.blueprints.impls.orient.OrientGraph;
@@ -22,18 +22,19 @@ import com.tinkerpop.blueprints.impls.orient.OrientGraphFactory;
 import com.tinkerpop.gremlin.groovy.Gremlin;
 import com.tinkerpop.pipes.Pipe;
 import com.tinkerpop.pipes.util.iterators.SingleIterator;
+import eu.tradegrid.tinkerpop.persistor.TinkerpopService;
 import eu.tradegrid.tinkerpop.persistor.util.JsonUtility;
-import org.apache.commons.configuration.Configuration;
-import org.apache.commons.configuration.MapConfiguration;
-import org.vertx.java.busmods.BusModBase;
-import org.vertx.java.core.Handler;
-import org.vertx.java.core.eventbus.Message;
-import org.vertx.java.core.json.EncodeException;
-import org.vertx.java.core.json.JsonArray;
-import org.vertx.java.core.json.JsonObject;
+import io.vertx.core.*;
+import io.vertx.core.eventbus.Message;
+import io.vertx.core.json.EncodeException;
+import io.vertx.core.json.JsonArray;
+import io.vertx.core.json.JsonObject;
+import io.vertx.core.logging.Logger;
+import io.vertx.core.logging.impl.LoggerFactory;
 
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
+import java.util.ArrayList;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -48,30 +49,34 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p/> 
  * @author <a href="https://github.com/aschrijver">Arnold Schrijver</a>
  */
-public class TinkerpopPersistor extends BusModBase implements Handler<Message<JsonObject>> {
+public class TinkerpopServiceImpl implements TinkerpopService {
 
-    protected String address;
-    protected Configuration tinkerpopConfig;
+    private final Vertx vertx;
+    private JsonObject tinkerpopConfig;
     protected JsonUtility jsonUtility;
     
     protected ConcurrentHashMap<String, Pipe<Element, Object>> queryCache;
-    
+    private Logger logger = LoggerFactory.getLogger(TinkerpopServiceImpl.class);
+    private OrientGraph graph;
+
+    public TinkerpopServiceImpl(Vertx vertx, JsonObject tinkerpopConfig) {
+        this.vertx = vertx;
+        this.tinkerpopConfig = tinkerpopConfig;
+    }
+
     /**
      * Start the Tinkerpop Persistor module.
      */
     @Override
     public void start() {
-        super.start();
-        
-        address = getOptionalStringConfig("address", "tinkerpop.persistor");
-        tinkerpopConfig = loadTinkerpopConfig();
         jsonUtility = new JsonUtility(tinkerpopConfig.getString("graphson.mode", "NORMAL"));
         
         queryCache = new ConcurrentHashMap<>();
-        
-        eb.registerHandler(address, this);
-        
-        logger.info("TinkerpopPersistor module started");
+
+        logger.info("TinkerpopServiceImpl module started");
+
+        OrientGraphFactory orientGraphFactory = new OrientGraphFactory(tinkerpopConfig.getString("url"),tinkerpopConfig.getString("username"),tinkerpopConfig.getString("password"));
+        graph = orientGraphFactory.getTx();
     }
     
     /**
@@ -79,107 +84,7 @@ public class TinkerpopPersistor extends BusModBase implements Handler<Message<Js
      */
     @Override
     public void stop() {
-        logger.info("TinkerpopPersistor module stopped");
-    }
-
-    /**
-     * Handle incoming events based on the action specified in the {@link Message}.<p/>
-     * 
-     * NOTE: 'Node' can be used instead of 'Vertex' in action terminology to avoid 
-     * confusion with Vert.x own terminology. And instead of 'Edge' one can use 'Relationship'.
-     * 
-     * @param message the incoming vertx event
-     */
-    @Override
-    public void handle(Message<JsonObject> message) {
-        String action = getMandatoryString("action", message);
-        if (action == null) {
-            sendError(message, "Action must be specified");
-            return;
-        }
-        
-        final OrientGraph graph;
-        try {
-           // graph = GraphFactory.open(tinkerpopConfig);
-            OrientGraphFactory factory = new OrientGraphFactory("remote:localhost/rd","admin","admin");
-            graph=factory.getTx();
-        } catch (RuntimeException e) {
-            sendError(message, "Cannot open Graph using Tinkerpop configuration");
-            return;
-        }
-        
-        try {
-            switch (action) {
-                case "addGraph":
-                    addGraph(message, graph);
-                    break;
-                case "addVertex":
-                case "addNode":
-                    addVertex(message, graph);
-                    break;
-                case "query":
-                    query(message, graph);
-                    break;
-                case "getVertices":
-                case "getNodes":
-                    getVertices(message, graph);
-                    break;
-                case "getVertex":
-                case "getNode":
-                    getVertex(message, graph);
-                    break;
-                case "removeVertex":
-                case "removeNode":
-                    removeVertex(message, graph);
-                    break;
-                case "addEdge":
-                case "addRelationship":
-                    addEdge(message, graph);
-                    break;
-                case "getEdge":
-                case "getRelationship":
-                    getEdge(message, graph);
-                    break;
-                case "getEdges":
-                case "getRelationships":
-                    getEdges(message, graph);
-                    break;
-                case "removeEdge":
-                case "removeRelationship":
-                    removeEdge(message, graph);
-                    break;
-                case "createKeyIndex":
-                    createKeyIndex(message, graph);
-                    break;
-                case "dropKeyIndex":
-                    dropKeyIndex(message, graph);
-                    break;
-                case "getIndexedKeys":
-                    getIndexedKeys(message, graph);
-                    break;
-                case "flushQueryCache":
-                    flushQueryCache(message, graph);
-                    break;
-                default:
-                    sendError(message, "Unsupported action " + action);
-                    break;
-            }
-        } catch (RuntimeException e) {
-            if (graph instanceof TransactionalGraph) {
-                ((TransactionalGraph) graph).rollback();
-            }
-            
-            sendError(message, 
-                    String.format("Action '%s': %s", action, e.getMessage()), e);
-        } catch (Exception e) {
-            if (graph instanceof TransactionalGraph) {
-                ((TransactionalGraph) graph).rollback();
-            }
-            
-            throw e;
-        } finally {
-            graph.shutdown();
-        }
+        logger.info("TinkerpopServiceImpl module stopped");
     }
     
     /**
@@ -189,20 +94,20 @@ public class TinkerpopPersistor extends BusModBase implements Handler<Message<Js
      * @param message the message containing information on the full Graph to create
      * @param graph the Tinkerpop graph that is used to communicate with the underlying graphdb
      */
-    protected void addGraph(Message<JsonObject> message, Graph graph) {
-        JsonObject graphJson = getMandatoryObject("graph", message);
+    @Override
+    public void addGraph(JsonObject graphJson, Handler<AsyncResult<JsonObject>> resultHandler) {
         if (graphJson == null) {
-            sendError(message, "Action 'addGraph': No graphSON data supplied.");
+            resultHandler.handle(Future.failedFuture("Action 'addGraph': No graphSON data supplied."));
             return;
         }
         
         try {
             jsonUtility.deserializeGraph(graph, graphJson);
         } catch (UnsupportedEncodingException e) {
-            sendError(message, "Action 'addGraph': The Graphson message is not UTF-8 encoded", e);
+            resultHandler.handle(Future.failedFuture(new Exception("Action 'addGraph': The Graphson message is not UTF-8 encoded", e)));
             return;
         } catch (IOException e) {
-            sendError(message, "Action 'addGraph': The Graphson message is invalid", e);
+            resultHandler.handle(Future.failedFuture(new Exception("Action 'addGraph': The Graphson message is invalid", e)));
             return;
         }
         
@@ -216,13 +121,13 @@ public class TinkerpopPersistor extends BusModBase implements Handler<Message<Js
             try {
                 reply = jsonUtility.serializeGraph(graph);
             } catch (IOException e) {
-                sendError(message, "Action 'addGraph': Cannot convert Graph to JSON", e);
+                resultHandler.handle(Future.failedFuture(new Exception("Action 'addGraph': Cannot convert Graph to JSON", e)));
                 return;
             }
             
-            sendOK(message, reply);
+            resultHandler.handle(Future.succeededFuture(reply));
         } else {
-            sendOK(message);
+            resultHandler.handle(Future.succeededFuture());
         }
     }
     
@@ -240,17 +145,18 @@ public class TinkerpopPersistor extends BusModBase implements Handler<Message<Js
      * @param message the message containing information on the new Vertex to create
      * @param graph the Tinkerpop graph that is used to communicate with the underlying graphdb
      */
-    protected void addVertex(Message<JsonObject> message, Graph graph) {
-        JsonArray verticesJson = message.body().getArray("vertices");
+    @Override
+    public void addVertex(JsonObject message, Handler<AsyncResult<JsonObject>> resultHandler) {
+        JsonArray verticesJson = message.getJsonArray("vertices");
         if (verticesJson == null || verticesJson.size() == 0) {
-            sendError(message, "Action 'addVertex': No vertex data supplied.");
+            resultHandler.handle(Future.failedFuture(new Exception("Action 'addVertex': No vertex data supplied.")));
         }
         
         Vertex vertex;
         try {
-            vertex = jsonUtility.deserializeVertex(graph, (JsonObject) verticesJson.get(0));
+            vertex = jsonUtility.deserializeVertex(graph, verticesJson.getJsonObject(0));
         } catch (IOException e) {
-            sendError(message, "Action 'addVertex': The Graphson message is invalid", e);
+            resultHandler.handle(Future.failedFuture(new Exception("Action 'addVertex': The Graphson message is invalid", e)));
             return;
         }
 
@@ -265,16 +171,16 @@ public class TinkerpopPersistor extends BusModBase implements Handler<Message<Js
             logger.debug("Added Vertex with Id: " + vertex.getId().toString());
         }
 
-        JsonObject reply = new JsonObject().putValue("_id", vertex.getId().toString());
+        JsonObject reply = new JsonObject().put("_id", vertex.getId().toString());
         try {
-            sendOK(message, reply);
+            resultHandler.handle(Future.succeededFuture(reply));
         } catch (EncodeException e) {
             // Id is not a Json support datatype, serialize to string.
-            reply.putValue("_id", vertex.getId().toString());
-            sendOK(message, reply);
+            reply.put("_id", vertex.getId().toString());
+            resultHandler.handle(Future.succeededFuture(reply));
         }
     }
-    
+
     /**
      * Execute a Gremlin query starting from the {@link Vertex} or {@link Edge} specified by Id in
      * the message body, and by using the query string specified in the 'query' field.<p/>
@@ -282,41 +188,49 @@ public class TinkerpopPersistor extends BusModBase implements Handler<Message<Js
      * returned as JSON in the message reply.
      * <p/>
      * Currently there is only support for queries that deal with either {@link Vertex} or {@link Edge}
-     * for their starts (and ends) types. 
-     * 
+     * for their starts (and ends) types.
+     *
      * @param message the message containing information on the Gremlin query to execute
      * @param graph the Tinkerpop graph that is used to communicate with the underlying graphdb
      */
+    @Override
     @SuppressWarnings("unchecked")
-    protected void query(Message<JsonObject> message, Graph graph) {
-        String starts = message.body().getString("starts", "Vertex");
-        Object id = getMandatoryValue(message, "_id");
+    public void query(JsonObject message, Handler<AsyncResult<JsonObject>> resultHandler) {
+        String starts = message.getString("starts", "Vertex");
+        Object id = null;
+
+        try {
+            id = getMandatoryValue(message, "_id");
+        } catch (Exception e) {
+            resultHandler.handle(Future.failedFuture(e));
+        }
+
         if (id == null) {
             return;
         }
-        
-        String query = getMandatoryString("query", message);
+
+        String query = message.getString("query");
         if (query == null) {
-            sendError(message, "Action 'query': No query specified.");
+            resultHandler.handle(Future.failedFuture(new Exception("Action 'query': No query specified.")));
             return;
         }
-        
+
         Element element = null;
         if ("Vertex".equals(starts) == true) {
             element = graph.getVertex(id);
         } else if ("Edge".equals(starts)) {
             element = graph.getEdge(id);
         } else {
-            sendError(message, "Action 'query': Unsupported starts property: " + starts);
+            resultHandler.handle(Future.failedFuture(new Exception("Action 'query': Unsupported starts property: " + starts)));
             return;
         }
 
         if (element == null) {
-            sendError(message, String.format("Action 'query': Starting %s %s not found", 
-                    starts, id.toString()));
+            resultHandler.handle(Future.failedFuture(new Exception(String.format("Action 'query': Starting %s %s not found",
+                    starts, id.toString()))));
             return;
         }
-        
+
         Pipe<Element, Object> pipe = null;
         if (queryCache.containsKey(query)) {
             pipe = queryCache.get(query);
@@ -324,73 +238,101 @@ public class TinkerpopPersistor extends BusModBase implements Handler<Message<Js
             try {
                 pipe = Gremlin.compile(query);
             } catch (Exception e) {
-                sendError(message, "Action 'query': Cannot compile query.", e);
+                resultHandler.handle(Future.failedFuture(new Exception("Action 'query': Cannot compile query.", e)));
                 return;
             }
-            
-            if (message.body().getBoolean("cache", true)) {
+
+            if (message.getBoolean("cache", true)) {
                 queryCache.put(query, pipe);
             }
         }
-        
+
         pipe.setStarts(new SingleIterator<Element>(element));
-        
+
         JsonArray queryResults;
         try {
             queryResults = jsonUtility.serializePipe(pipe);
         } catch (IOException e) {
-            sendError(message, "Action 'query': Error converting Pipe to JSON.", e);
+            resultHandler.handle(Future.failedFuture(new Exception("Action 'query': Error converting Pipe to JSON.", e)));
             return;
         }
-        
-        JsonObject reply = new JsonObject();
-        reply.putArray("results", queryResults);
 
-        sendOK(message, reply);
+        JsonObject reply = new JsonObject();
+        reply.put("results", queryResults);
+
+        resultHandler.handle(Future.succeededFuture(reply));
     }
-    
+
     /**
-     * Retrieve one or more vertices from the db in a single call. The {@link Message} 
+     * Retrieve one or more vertices from the db in a single call. The {@link Message}
      * may contain optional 'key' and a 'value' fields to filter only on those vertices that
      * have the specified key/value pair.<p/>
-     * 
+     *
      * @param message the message containing information on the vertices to retrieve
      * @param graph the Tinkerpop graph that is used to communicate with the underlying graphdb
      */
-    protected void getVertices(Message<JsonObject> message, Graph graph) {
-        String key = message.body().getString("key");
-        Object value = message.body().getValue("value");
-        
+    @Override
+    public void getVertices(String key, Object value, Handler<AsyncResult<JsonObject>> resultHandler) {
         JsonArray verticesJson;
         try {
             if (key == null) {
-                verticesJson = jsonUtility.serializeElements(graph.getVertices());    
+                verticesJson = jsonUtility.serializeElements(graph.getVertices());
             } else if (value != null) {
                 verticesJson = jsonUtility.serializeElements(graph.getVertices(key, value));
             } else {
-                sendError(message, "Action 'getVertices': Both a key and a value must be specified");
+                resultHandler.handle(Future.failedFuture(new Exception("Action 'getVertices': Both a key and a value must be specified")));
                 return;
             }
         } catch (IOException e) {
-            sendError(message, "Action 'getVertices': Cannot convert vertices to JSON", e);
-            return;            
+            resultHandler.handle(Future.failedFuture(new Exception("Action 'getVertices': Cannot convert vertices to JSON", e)));
+            return;
         }
-        
-        JsonObject reply = new JsonObject().putObject("graph", new JsonObject()
-                .putString("mode", jsonUtility.getGraphSONMode())
-                .putArray("vertices", verticesJson));
-        
-        sendOK(message, reply);
+
+        JsonObject reply = new JsonObject().put("graph", new JsonObject()
+                .put("mode", jsonUtility.getGraphSONMode())
+                .put("vertices", verticesJson));
+
+        resultHandler.handle(Future.succeededFuture(reply));
     }
-    
+
+    /**
+     * Retrieve one or more vertices from the db in a single call. The {@link Message}
+     * may contain optional 'key' and a 'value' fields to filter only on those vertices that
+     * have the specified key/value pair.<p/>
+     *
+     * @param aClass a string of the custom type
+     * @param resultHandler the result handler
+     */
+    @Override
+    public void getVerticesOfClass(String aClass, Handler<AsyncResult<JsonObject>> resultHandler) {
+        JsonArray verticesJson;
+        try {
+            if (aClass == null) {
+                verticesJson = jsonUtility.serializeElements(graph.getVertices());
+            } else {
+                verticesJson = jsonUtility.serializeElements(graph.getVerticesOfClass(aClass));
+            }
+        } catch (IOException e) {
+            resultHandler.handle(Future.failedFuture(new Exception("Action 'getVertices': Cannot convert vertices to JSON", e)));
+            return;
+        }
+
+        JsonObject reply = new JsonObject().put("graph", new JsonObject()
+                .put("mode", jsonUtility.getGraphSONMode())
+                .put("vertices", verticesJson));
+
+        resultHandler.handle(Future.succeededFuture(reply));
+    }
+
     /**
      * Retrieve the {@link Vertex} with the id specified in the {@link Message}.<p/>
      * 
      * @param message the message containing information on the Vertex to retrieve
      * @param graph the Tinkerpop graph that is used to communicate with the underlying graphdb
      */
-    protected void getVertex(Message<JsonObject> message, Graph graph) {
-        getElement(message, graph, "Vertex");
+    @Override
+    public void getVertex(JsonObject message, Handler<AsyncResult<JsonObject>> resultHandler) {
+        getElement(message, resultHandler, "Vertex");
     }
     
     /**
@@ -400,8 +342,9 @@ public class TinkerpopPersistor extends BusModBase implements Handler<Message<Js
      * @param message the message containing information on the Vertex to remove
      * @param graph the Tinkerpop graph that is used to communicate with the underlying graphdb
      */
-    protected void removeVertex(Message<JsonObject> message, Graph graph) {
-        removeElement(message, graph, "Vertex");
+    @Override
+    public void removeVertex(JsonObject message, Handler<AsyncResult<JsonObject>> resultHandler) {
+        removeElement(message, resultHandler, "Vertex");
     }
     
     /**
@@ -421,17 +364,18 @@ public class TinkerpopPersistor extends BusModBase implements Handler<Message<Js
      * @param message the message containing information on the new Edge to create
      * @param graph the Tinkerpop graph that is used to communicate with the underlying graphdb
      */
-    protected void addEdge(Message<JsonObject> message, Graph graph) {
+    @Override
+    public void addEdge(JsonObject message, Handler<AsyncResult<JsonObject>> resultHandler) {
 
         // Formatted according to GraphSON format.
-        JsonArray edgesJson = message.body().getArray("edges");
-        JsonObject edgeJson = edgesJson.get(0);
-        Object inId = edgeJson.getField("_inV");
-        Object outId = edgeJson.getField("_outV");
+        JsonArray edgesJson = message.getJsonArray("edges");
+        JsonObject edgeJson = edgesJson.getJsonObject(0);
+        Object inId = edgeJson.getValue("_inV");
+        Object outId = edgeJson.getValue("_outV");
         
         // The label is a required field in some database products.
         if (edgeJson.getString("_label") == null) {
-            sendError(message, "Action 'addEdge': Key _label is a required field");
+            resultHandler.handle(Future.failedFuture(new Exception("Action 'addEdge': Key _label is a required field")));
             return;
         }
         
@@ -442,7 +386,7 @@ public class TinkerpopPersistor extends BusModBase implements Handler<Message<Js
         try {
             edge = jsonUtility.deserializeEdge(graph, inVertex, outVertex, edgeJson);
         } catch (IOException e) {
-            sendError(message, "Action 'addEdge': The Graphson message is invalid", e);
+            resultHandler.handle(Future.failedFuture(new Exception("Action 'addEdge': The Graphson message is invalid", e)));
             return;
         }
         
@@ -457,9 +401,9 @@ public class TinkerpopPersistor extends BusModBase implements Handler<Message<Js
             logger.debug("Added Edge with Id: " + edge.getId().toString());
         }
         
-        JsonObject reply = new JsonObject().putValue("_id", edge.getId());
+        JsonObject reply = new JsonObject().put("_id", edge.getId());
 
-        sendOK(message, reply);
+        resultHandler.handle(Future.succeededFuture(reply));
     }
     
     /**
@@ -468,8 +412,9 @@ public class TinkerpopPersistor extends BusModBase implements Handler<Message<Js
      * @param message the message containing information on the Edge to retrieve
      * @param graph the Tinkerpop graph that is used to communicate with the underlying graphdb
      */
-    protected void getEdge(Message<JsonObject> message, Graph graph) {
-        getElement(message, graph, "Edge");
+    @Override
+    public void getEdge(JsonObject message, Handler<AsyncResult<JsonObject>> resultHandler) {
+        getElement(message, resultHandler, "Edge");
     }
     
     /**
@@ -480,9 +425,10 @@ public class TinkerpopPersistor extends BusModBase implements Handler<Message<Js
      * @param message the message containing information on the edges to retrieve
      * @param graph the Tinkerpop graph that is used to communicate with the underlying graphdb
      */
-    protected void getEdges(Message<JsonObject> message, Graph graph) {
-        String key = message.body().getString("key");
-        Object value = message.body().getValue("value");
+    @Override
+    public void getEdges(JsonObject message, Handler<AsyncResult<JsonObject>> resultHandler) {
+        String key = message.getString("key");
+        Object value = message.getValue("value");
         
         JsonArray edges;
         try {
@@ -491,20 +437,20 @@ public class TinkerpopPersistor extends BusModBase implements Handler<Message<Js
             } else if (value != null) {
                 edges = jsonUtility.serializeElements(graph.getEdges(key, value));
             } else {
-                sendError(message, "Action 'getEdges': Both a key and a value must be specified");
+                resultHandler.handle(Future.failedFuture(new Exception("Action 'getEdges': Both a key and a value must be specified")));
                 return;
             }
         }
         catch (IOException e) {
-            sendError(message, "Action 'getEdges': Cannot convert Edges to JSON", e);
+            resultHandler.handle(Future.failedFuture(new Exception("Action 'getEdges': Cannot convert Edges to JSON", e)));
             return;
         }
         
-        JsonObject reply = new JsonObject().putObject("graph", new JsonObject()
-                .putString("mode", jsonUtility.getGraphSONMode())
-                .putArray("edges", edges));
+        JsonObject reply = new JsonObject().put("graph", new JsonObject()
+                .put("mode", jsonUtility.getGraphSONMode())
+                .put("edges", edges));
         
-        sendOK(message, reply);
+         resultHandler.handle(Future.succeededFuture(reply)); 
     }
     
     /**
@@ -514,8 +460,9 @@ public class TinkerpopPersistor extends BusModBase implements Handler<Message<Js
      * @param message the message containing information on the Edge to remove
      * @param graph the Tinkerpop graph that is used to communicate with the underlying graphdb
      */
-    protected void removeEdge(Message<JsonObject> message, Graph graph) {
-        removeElement(message, graph, "Edge");
+    @Override
+    public void removeEdge(JsonObject message, Handler<AsyncResult<JsonObject>> resultHandler) {
+        removeElement(message, resultHandler, "Edge");
     }
         
     /**
@@ -525,14 +472,15 @@ public class TinkerpopPersistor extends BusModBase implements Handler<Message<Js
      * @param message the message containing information on the Key Index to create
      * @param graph the Tinkerpop graph that is used to communicate with the underlying graphdb
      */
-    protected void createKeyIndex(Message<JsonObject> message, Graph graph) {
+    @Override
+    public void createKeyIndex(JsonObject message, Handler<AsyncResult<JsonObject>> resultHandler) {
         
         if (graph.getFeatures().supportsKeyIndices && graph instanceof KeyIndexableGraph) {
-            String key = getMandatoryString("key", message);
+            String key = message.getString("key");
             
             Class<? extends Element> elementClass = getIndexElementClass(message);
             if (elementClass == null) {
-                sendError(message, "Action 'createKeyIndex': Unsupported elementClass " + elementClass);
+                resultHandler.handle(Future.failedFuture(new Exception("Action 'createKeyIndex': Unsupported elementClass " + elementClass)));
                 return;
             }
             
@@ -545,12 +493,12 @@ public class TinkerpopPersistor extends BusModBase implements Handler<Message<Js
                     ((KeyIndexableGraph) graph).createKeyIndex(key, elementClass, parameters);
                 }
             } catch (RuntimeException e) {
-                sendError(message, "Action 'createKeyIndex': Cannot create index with key " + key, e);
+                resultHandler.handle(Future.failedFuture(new Exception("Action 'createKeyIndex': Cannot create index with key " + key, e)));
             }
             
-            sendOK(message);
+            resultHandler.handle(Future.succeededFuture());
         } else {
-            sendError(message, "Action 'createKeyIndex': Graph does not support key indices");
+            resultHandler.handle(Future.failedFuture(new Exception("Action 'createKeyIndex': Graph does not support key indices")));
         }
     }
 
@@ -561,26 +509,27 @@ public class TinkerpopPersistor extends BusModBase implements Handler<Message<Js
      * @param message the message containing information on the Key Index to create
      * @param graph the Tinkerpop graph that is used to communicate with the underlying graphdb
      */
-    protected void dropKeyIndex(Message<JsonObject> message, Graph graph) {
+    @Override
+    public void dropKeyIndex(JsonObject message, Handler<AsyncResult<JsonObject>> resultHandler) {
         
         if (graph.getFeatures().supportsKeyIndices && graph instanceof KeyIndexableGraph) {
-            String key = getMandatoryString("key", message);
+            String key = message.getString("key");
 
             Class<? extends Element> elementClass = getIndexElementClass(message);
             if (elementClass == null) {
-                sendError(message, "Action 'dropKeyIndex': Unsupported elementClass " + elementClass);
+                resultHandler.handle(Future.failedFuture(new Exception("Action 'dropKeyIndex': Unsupported elementClass " + elementClass)));
                 return;
             }
             
             try {
                 ((KeyIndexableGraph) graph).dropKeyIndex(key, elementClass);
             } catch (RuntimeException e) {
-                sendError(message, "Action 'dropKeyIndex': Cannot drop index with key " + key, e);
+                resultHandler.handle(Future.failedFuture(new Exception("Action 'dropKeyIndex': Cannot drop index with key " + key, e)));
             }
             
-            sendOK(message);
+            resultHandler.handle(Future.succeededFuture());
         } else {
-            sendError(message, "Action 'dropKeyIndex': Graph does not support key indices");
+            resultHandler.handle(Future.failedFuture(new Exception("Action 'dropKeyIndex': Graph does not support key indices")));
         }
     }
     
@@ -590,41 +539,44 @@ public class TinkerpopPersistor extends BusModBase implements Handler<Message<Js
      * @param message the message that contains the element class for which to retrieve the indices
      * @param graph the Tinkerpop graph that is used to communicate with the underlying graphdb
      */
-    protected void getIndexedKeys(Message<JsonObject> message, Graph graph) {
+    @Override
+    public void getIndexedKeys(JsonObject message, Handler<AsyncResult<JsonObject>> resultHandler) {
         
         if (graph.getFeatures().supportsKeyIndices && graph instanceof KeyIndexableGraph) {
             try {
                 Class<? extends Element> elementClass = getIndexElementClass(message);
                 if (elementClass == null) {
-                    sendError(message, "Action 'dropKeyIndex': Unsupported elementClass " + elementClass);
+                    resultHandler.handle(Future.failedFuture(new Exception("Action 'dropKeyIndex': Unsupported elementClass " + elementClass)));
                     return;
                 }
                 
                 Set<String> indexedKeys = ((KeyIndexableGraph) graph).getIndexedKeys(elementClass);
                 JsonObject reply = new JsonObject()
-                        .putArray("keys", new JsonArray(indexedKeys.toArray()));
-                
-                sendOK(message, reply);
+                        .put("keys", new JsonArray(new ArrayList(indexedKeys)));
+
+                resultHandler.handle(Future.succeededFuture(reply));
             } catch (RuntimeException e) {
-                sendError(message, "Action 'getIndexedKeys': Cannot retrieve indexed keys", e);    
+                resultHandler.handle(Future.failedFuture(new Exception("Action 'getIndexedKeys': Cannot retrieve indexed keys", e)));
             }
         } else {
-            sendError(message, "Action 'getIndexedKeys': Graph does not support key indices");
+            resultHandler.handle(Future.failedFuture(new Exception("Action 'getIndexedKeys': Graph does not support key indices")));
         }
     }
-    
-    protected void flushQueryCache(Message<JsonObject> message, Graph graph) {
-        String query = message.body().getString("query");
+
+    @Override
+    public void flushQueryCache(JsonObject message, Handler<AsyncResult<JsonObject>> resultHandler) {
+        String query = message.getString("query");
         if (query == null) {
             queryCache.clear();
         } else {
             queryCache.remove(query);
         }
-        sendOK(message);
+
+        resultHandler.handle(Future.succeededFuture());
     }
-    
-    private Class<? extends Element> getIndexElementClass(Message<JsonObject> message) {
-        String elementClass = getMandatoryString("elementClass", message);
+
+    private Class<? extends Element> getIndexElementClass(JsonObject message) {
+        String elementClass = message.getString("elementClass");
 
         switch (elementClass) {
             case "Vertex":
@@ -637,30 +589,34 @@ public class TinkerpopPersistor extends BusModBase implements Handler<Message<Js
     }
     
     @SuppressWarnings("unchecked")
-    private Parameter<String, Object>[] getIndexParameters(Message<JsonObject> message) {
-        JsonObject indexParameters = message.body().getObject("parameters");
+    private Parameter<String, Object>[] getIndexParameters(JsonObject message) {
+        JsonObject indexParameters = message.getJsonObject("parameters");
         
         Parameter<String, Object>[] parameters = null;
         if (indexParameters != null && indexParameters.size() > 0) {
-            parameters = (Parameter<String, Object>[]) indexParameters.toMap().entrySet().toArray();
+            parameters = (Parameter<String, Object>[]) indexParameters.getMap().entrySet().toArray();
         }
         
         return parameters;
     }
-    
-    private void getElement(Message<JsonObject> message, 
-            final Graph graph, String elementType) {
-        
-        Object id = getMandatoryValue(message, "_id");
+
+    private void getElement(JsonObject message, Handler<AsyncResult<JsonObject>> resultHandler, String elementType) {
+
+        Object id = null;
+        try {
+            id = getMandatoryValue(message, "_id");
+        } catch (Exception e) {
+            resultHandler.handle(Future.failedFuture(e));
+        }
         if (id == null) {
             return;
         }
         
         Element element = elementType.equals("Vertex") ? graph.getVertex(id) : graph.getEdge(id);
         if (element ==  null) {
-            sendError(message, 
-                    String.format("Action 'get%s': %s %s not found", 
-                    elementType, elementType, id.toString()));
+            resultHandler.handle(Future.failedFuture(new Exception(
+                    String.format("Action 'get%s': %s %s not found",
+                            elementType, elementType, id.toString()))));
             return;
         }
         
@@ -668,34 +624,38 @@ public class TinkerpopPersistor extends BusModBase implements Handler<Message<Js
         try {
             elementJson = jsonUtility.serializeElement(element);
         } catch (IOException e) {
-            sendError(message, String.format(
-                    "Action 'get%s': Cannot convert %s %s to JSON", 
-                    elementType, elementType, element.toString()), e);
+            resultHandler.handle(Future.failedFuture(new Exception(String.format(
+                    "Action 'get%s': Cannot convert %s %s to JSON",
+                    elementType, elementType, element.toString()), e)));
             return;
         }
         
         String arrayElement = elementType == "Vertex" ? "vertices" : "edges";
-        JsonObject reply = new JsonObject().putObject("graph", new JsonObject()
-                .putString("mode", jsonUtility.getGraphSONMode())
-                .putArray(arrayElement, new JsonArray()
-                        .addObject(elementJson)));
+        JsonObject reply = new JsonObject().put("graph", new JsonObject()
+                .put("mode", jsonUtility.getGraphSONMode())
+                .put(arrayElement, new JsonArray()
+                        .add(elementJson)));
         
-        sendOK(message, reply);
+         resultHandler.handle(Future.succeededFuture(reply)); 
     }
     
-    private void removeElement(Message<JsonObject> message, 
-            final Graph graph, String elementType) {
-        
-        Object id = getMandatoryValue(message, "_id");
+    private void removeElement(JsonObject message, Handler<AsyncResult<JsonObject>> resultHandler, String elementType) {
+
+        Object id = null;
+        try {
+            id = getMandatoryValue(message, "_id");
+        } catch (Exception e) {
+            resultHandler.handle(Future.failedFuture(e));
+        }
         if (id == null) {
             return;
         }
         
         Element element = elementType.equals("Vertex") ? graph.getVertex(id) : graph.getEdge(id);
         if (element ==  null) {
-            sendError(message, 
-                    String.format("Action 'remove%s': Cannot remove. %s %s not found", 
-                    elementType, elementType, id.toString()));
+            resultHandler.handle(Future.failedFuture(new Exception(
+                    String.format("Action 'remove%s': Cannot remove. %s %s not found",
+                            elementType, elementType, id.toString()))));
             return;
         }
         
@@ -706,9 +666,9 @@ public class TinkerpopPersistor extends BusModBase implements Handler<Message<Js
                 graph.removeEdge((Edge) element);
             }
         } catch (Exception e) {
-            sendError(message, 
-                    String.format("Action 'remove%s': Error removing %s with Id %s", 
-                    elementType, elementType, id.toString()));
+            resultHandler.handle(Future.failedFuture(new Exception(
+                    String.format("Action 'remove%s': Error removing %s with Id %s",
+                            elementType, elementType, id.toString()))));
             return;
         }
 
@@ -720,34 +680,15 @@ public class TinkerpopPersistor extends BusModBase implements Handler<Message<Js
             logger.debug(String.format("Removed %s with Id %s", elementType, id.toString()));
         }
         
-        JsonObject reply = new JsonObject().putValue("_id", id);
-        sendOK(message, reply);
+        JsonObject reply = new JsonObject().put("_id", id);
+         resultHandler.handle(Future.succeededFuture(reply)); 
     }
     
-    /**
-     * Load information on the graph database to connect to from the mod.json into
-     * a {@link Configuration} object needed for opening the Tinkerpop {@link Graph}.<p/>
-     * 
-     * @return the graph database configuration
-     */
-    private Configuration loadTinkerpopConfig() {
-        JsonObject tinkerpopConfigJson = config.getObject("tinkerpopConfig");
-        if (tinkerpopConfigJson == null) {
-            throw new IllegalArgumentException(
-                    "tinkerpopConfig section must be specified in config");
-        }
-        
-        Configuration config = new MapConfiguration(tinkerpopConfigJson.toMap());
-        
-        return config;
-    }
-    
-    private Object getMandatoryValue(Message<JsonObject> message, String fieldName) {
-        Object value = message.body().getField(fieldName);
+    private Object getMandatoryValue(JsonObject message, String fieldName) throws Exception {
+        Object value = message.getValue(fieldName);
         if (value == null) {
-            String action = message.body().getString("action");
-            sendError(message, 
-                    String.format("Action '%s': %s must be specified", action, fieldName));
+            String action = message.getString("action");
+            throw new Exception(String.format("Action '%s': %s must be specified", action, fieldName));
         }
         return value;
     }

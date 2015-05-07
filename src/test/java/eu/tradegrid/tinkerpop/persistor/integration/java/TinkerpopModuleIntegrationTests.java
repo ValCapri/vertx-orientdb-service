@@ -16,30 +16,29 @@
 
 package eu.tradegrid.tinkerpop.persistor.integration.java;
 
+import com.orientechnologies.orient.core.db.document.ODatabaseDocumentTx;
 import com.tinkerpop.blueprints.TransactionalGraph;
 import com.tinkerpop.blueprints.Vertex;
 import com.tinkerpop.blueprints.impls.orient.OrientGraph;
-import io.vertx.rxcore.java.eventbus.RxEventBus;
-import io.vertx.rxcore.java.eventbus.RxMessage;
+import eu.tradegrid.tinkerpop.persistor.TinkerpopServiceVerticle;
+import io.vertx.core.DeploymentOptions;
+import io.vertx.core.json.JsonObject;
+import io.vertx.rxjava.core.Vertx;
+import io.vertx.rxjava.core.eventbus.EventBus;
+import io.vertx.rxjava.core.eventbus.Message;
+import io.vertx.test.core.TestVerticle;
+import io.vertx.test.core.VertxTestBase;
 import org.apache.commons.io.IOUtils;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
-import org.vertx.java.core.AsyncResult;
-import org.vertx.java.core.AsyncResultHandler;
-import org.vertx.java.core.Handler;
-import org.vertx.java.core.eventbus.Message;
-import org.vertx.java.core.json.JsonArray;
-import org.vertx.java.core.json.JsonObject;
-import org.vertx.testtools.TestVerticle;
 import rx.Observable;
-import rx.util.functions.Action1;
-import rx.util.functions.Func1;
+import rx.functions.Action1;
+import rx.functions.Func1;
 
 import java.io.IOException;
 import java.io.InputStream;
 
-import static org.vertx.testtools.VertxAssert.*;
 
 /**
  * Tinkerpop Persistor Bus Module integration tests for 
@@ -48,22 +47,24 @@ import static org.vertx.testtools.VertxAssert.*;
  * <p/>
  * @author <a href="https://github.com/aschrijver">Arnold Schrijver</a>
  */
-public class TinkerpopModuleIntegrationTests extends TestVerticle {
+public class TinkerpopModuleIntegrationTests extends VertxTestBase {
     
     @Rule
     public TemporaryFolder tempFolder = new TemporaryFolder();
 
     private JsonObject config;
-    private RxEventBus rxEventBus;
+    private EventBus rxEventBus;
     
     Object vertexId;
     Object outVertex;
-    
-    @Override
-    public void start() {
-        initialize();
+    private Vertx rxVertx;
 
-        rxEventBus = new RxEventBus(vertx.eventBus());
+    @Override
+    public void setUp() throws Exception {
+        super.setUp();
+
+        rxVertx = new Vertx(super.vertx);
+        rxEventBus = rxVertx.eventBus();
         
         try {
             tempFolder.create();
@@ -73,26 +74,21 @@ public class TinkerpopModuleIntegrationTests extends TestVerticle {
         
         //config = getNeo4jConfig();
         config = getOrientDbConfig();
-        
-        container.deployModule(System.getProperty("vertx.modulename"), config,
-                new AsyncResultHandler<String>() {
-            
-            @Override
-            public void handle(AsyncResult<String> asyncResult) {
-                assertTrue(asyncResult.succeeded());
-                assertNotNull("deploymentID should not be null", asyncResult.result());
 
-                startTests();
-            }
+        super.vertx.deployVerticle(TinkerpopServiceVerticle.class.getName(), new DeploymentOptions().setConfig(config), res -> {
+            assertTrue(res.succeeded());
+            assertNotNull("deploymentID should not be null", res.result());
+
+            //startTests();
         });
+
     }
 
     //@Test
     public void testServer() {
 
 
-        TransactionalGraph graph = new OrientGraph("remote:localhost/rd", "admin", "admin");
-       // test = new ODatabaseDocumentTx("remote:localhost/test$customers");
+        TransactionalGraph graph = new OrientGraph("remote:localhost/test$customers", "admin", "admin");
         Vertex vPerson = graph.addVertex("class:Person");
         vPerson.setProperty("firstName", "John");
         vPerson.setProperty("lastName", "Smith");
@@ -104,78 +100,60 @@ public class TinkerpopModuleIntegrationTests extends TestVerticle {
 
     }
     
-    @Test
+    /*@Test
     public void testAddGetAndRemoveVertex() {
 
         // Load sample GraphSON message.
         JsonObject vertexToAdd = getResourceAsJson("addVertex.json");
         
-        final Action1<Exception> failure = new Action1<Exception>() {
-
-            @Override
-            public void call(Exception e) {
-                fail(e.getMessage());
-            }
+        final Action1<Exception> failure = e -> fail(e.getMessage());
+        
+        final Action1<Message<JsonObject>> testComplete = message -> {
+            assertEquals("ok", message.body().getString("status"));
+            assertEquals(vertexId, message.body().getValue("_id"));
+            testComplete();
         };
         
-        final Action1<RxMessage<JsonObject>> testComplete = new Action1<RxMessage<JsonObject>>() {
+        final Func1<Message<JsonObject>, Observable<Message<JsonObject>>> removeVertex =
+                message -> {
+                    assertEquals("ok", message.body().getString("status"));
+                    assertNotNull("GraphSON: 'graph' object missing", message.body().getJsonObject("graph"));
+                    assertNotNull("GraphSON: 'vertices' array missing", message.body().getJsonObject("graph").getJsonArray("vertices"));
+                    assertEquals(1, message.body().getJsonObject("graph").getJsonArray("vertices").size());
+                    assertTrue(message.body().getJsonObject("graph").getJsonArray("vertices").getJsonObject(0) instanceof JsonObject);
 
-            @Override
-            public void call(RxMessage<JsonObject> message) {
-                assertEquals("ok", message.body().getString("status"));
-                assertEquals(vertexId, message.body().getField("_id"));
-                testComplete();
-            }
-        };
+                    JsonObject vertex = message.body().getJsonObject("graph").getJsonArray("vertices").getJsonObject(0);
+                    assertEquals("vert.x", vertex.getString("project"));
+                    assertNotNull(vertex.getValue("_id"));
+                    vertexId = vertex.getValue("_id");
+
+                    JsonObject vertexToRemove = new JsonObject();
+                    vertexToRemove.put("action", "removeVertex");
+                    vertexToRemove.put("_id", vertexId);
+
+                    rxEventBus.send("test.persistor", vertexToRemove);
+                };
         
-        final Func1<RxMessage<JsonObject>, Observable<RxMessage<JsonObject>>> removeVertex = 
-                new Func1<RxMessage<JsonObject>, Observable<RxMessage<JsonObject>>>() {
+        final Func1<Message<JsonObject>, Observable<Message<JsonObject>>> getVertex =
+                message -> {
+                    assertEquals("ok", message.body().getString("status"));
+                    assertNotNull(message.body().getValue("_id"));
 
-            @Override
-            public Observable<RxMessage<JsonObject>> call(RxMessage<JsonObject> message) {
-                assertEquals("ok", message.body().getString("status"));
-                assertNotNull("GraphSON: 'graph' object missing", message.body().getObject("graph"));
-                assertNotNull("GraphSON: 'vertices' array missing", message.body().getObject("graph").getArray("vertices"));
-                assertEquals(1, message.body().getObject("graph").getArray("vertices").size());
-                assertTrue(message.body().getObject("graph").getArray("vertices").get(0) instanceof JsonObject);
-                
-                JsonObject vertex = message.body().getObject("graph").getArray("vertices").get(0);
-                assertEquals("vert.x", vertex.getString("project"));
-                assertNotNull(vertex.getField("_id"));
-                vertexId = vertex.getField("_id");
-                
-                JsonObject vertexToRemove = new JsonObject();
-                vertexToRemove.putString("action", "removeVertex");
-                vertexToRemove.putValue("_id", vertexId);
-                
-                return rxEventBus.send("test.persistor", vertexToRemove);
-            }
-        };
-        
-        final Func1<RxMessage<JsonObject>, Observable<RxMessage<JsonObject>>> getVertex = 
-                new Func1<RxMessage<JsonObject>, Observable<RxMessage<JsonObject>>>() {
+                    Object addedVertexId = message.body().getValue("_id");
 
-            @Override
-            public Observable<RxMessage<JsonObject>> call(RxMessage<JsonObject> message) {
-                assertEquals("ok", message.body().getString("status"));
-                assertNotNull(message.body().getValue("_id"));
-                
-                Object addedVertexId = message.body().getField("_id");
-                
-                // NOTE: The id returned depends on the graphdb implementation used and is not
-                //       guaranteed to be equal to the one provided in the GraphSON message.
-                assertNotNull("AddVertex must return a Vertex Id", addedVertexId);
-                
-                JsonObject vertexToGet = new JsonObject();
-                vertexToGet.putString("action", "getVertex");
-                vertexToGet.putValue("_id", addedVertexId);
-                
-                return rxEventBus.send("test.persistor", vertexToGet);
-            }
-        };
+                    // NOTE: The id returned depends on the graphdb implementation used and is not
+                    //       guaranteed to be equal to the one provided in the GraphSON message.
+                    assertNotNull("AddVertex must return a Vertex Id", addedVertexId);
+
+                    JsonObject vertexToGet = new JsonObject();
+                    vertexToGet.put("action", "getVertex");
+                    vertexToGet.put("_id", addedVertexId);
+
+                    rxEventBus.send("test.persistor", vertexToGet);
+                };
         
         rxEventBus.send("test.persistor", vertexToAdd)
-                .mapMany(getVertex)
+                .(getVertex)
                 .mapMany(removeVertex)
                 .subscribe(testComplete, failure);   
     }
@@ -206,11 +184,11 @@ public class TinkerpopModuleIntegrationTests extends TestVerticle {
                     public void handle(Message<JsonObject> message) {
                         JsonObject reply = message.body();
                         assertEquals("ok", reply.getString("status"));
-                        assertNotNull(((JsonObject) message.body().getObject("graph")
-                                .getArray("vertices").get(0)).getField("_id"));
+                        assertNotNull(((JsonObject) message.body().getJsonObject("graph")
+                                .getJsonArray("vertices").get(0)).getValue("_id"));
 
-                        outVertex = ((JsonObject) message.body().getObject("graph")
-                                .getArray("vertices").get(0)).getField("_id");
+                        outVertex = ((JsonObject) message.body().getJsonObject("graph")
+                                .getJsonArray("vertices").get(0)).getValue("_id");
                         
                         final JsonObject addVertex = new JsonObject()
                                 .putString("action", "addVertex")
@@ -242,7 +220,7 @@ public class TinkerpopModuleIntegrationTests extends TestVerticle {
                                     public void handle(Message<JsonObject> message) {
                                         JsonObject reply = message.body();
                                         assertEquals("ok", reply.getString("status"));
-                                        assertNotNull(reply.getField("_id"));
+                                        assertNotNull(reply.getValue("_id"));
                                         
                                         testComplete();
                                     }
@@ -272,13 +250,13 @@ public class TinkerpopModuleIntegrationTests extends TestVerticle {
                 assertEquals("ok", reply.getString("status"));
                 
                 // Graph is only returned if ID's were generated by the db
-                if (reply.getObject("graph") != null) {
-                    assertNotNull("GraphSON: 'vertices' array missing", message.body().getObject("graph").getArray("vertices"));
-                    assertNotNull("GraphSON: 'edges' array missing", message.body().getObject("graph").getArray("edges"));
-//                    assertEquals(5, message.body().getObject("graph").getArray("edges").size());
+                if (reply.getJsonObject("graph") != null) {
+                    assertNotNull("GraphSON: 'vertices' array missing", message.body().getJsonObject("graph").getJsonArray("vertices"));
+                    assertNotNull("GraphSON: 'edges' array missing", message.body().getJsonObject("graph").getJsonArray("edges"));
+//                    assertEquals(5, message.body().getJsonObject("graph").getJsonArray("edges").size());
                     
-                    JsonArray vertices = message.body().getObject("graph").getArray("vertices");
-                    if (config.getObject("tinkerpopConfig").getString("blueprints.neo4j.directory") != null) {
+                    JsonArray vertices = message.body().getJsonObject("graph").getJsonArray("vertices");
+                    if (config.getJsonObject("tinkerpopConfig").getString("blueprints.neo4j.directory") != null) {
 
                         // In Neo4J we have to account for auto-generated root vertex.
                         assertEquals(13, vertices.size());
@@ -286,8 +264,8 @@ public class TinkerpopModuleIntegrationTests extends TestVerticle {
                        // assertEquals(147, vertices.size());
                     }
                     
-                    assertTrue(message.body().getObject("graph").getArray("vertices").get(0) instanceof JsonObject);
-                    assertTrue(message.body().getObject("graph").getArray("edges").get(0) instanceof JsonObject);
+                    assertTrue(message.body().getJsonObject("graph").getJsonArray("vertices").get(0) instanceof JsonObject);
+                    assertTrue(message.body().getJsonObject("graph").getJsonArray("edges").get(0) instanceof JsonObject);
                 }
 
                 testComplete();
@@ -322,11 +300,11 @@ public class TinkerpopModuleIntegrationTests extends TestVerticle {
                     public void handle(Message<JsonObject> message) {
                         JsonObject reply = message.body();
                         assertEquals("ok", reply.getString("status"));
-                        assertNotNull("GraphSON: 'graph' object missing", message.body().getObject("graph"));
-                        assertNotNull("GraphSON: 'vertices' array missing", message.body().getObject("graph").getArray("vertices"));
-                        assertEquals(1, message.body().getObject("graph").getArray("vertices").size());
+                        assertNotNull("GraphSON: 'graph' object missing", message.body().getJsonObject("graph"));
+                        assertNotNull("GraphSON: 'vertices' array missing", message.body().getJsonObject("graph").getJsonArray("vertices"));
+                        assertEquals(1, message.body().getJsonObject("graph").getJsonArray("vertices").size());
                         
-                        final Object id = ((JsonObject) reply.getObject("graph").getArray("vertices").get(0)).getField("_id");
+                        final Object id = ((JsonObject) reply.getJsonObject("graph").getJsonArray("vertices").get(0)).getValue("_id");
                         final JsonObject queryRootFolder = new JsonObject()
                                 .putString("action", "query")
                                 .putString("query", query)
@@ -339,8 +317,8 @@ public class TinkerpopModuleIntegrationTests extends TestVerticle {
                                 JsonObject reply = message.body();
                                 assertEquals("ok", reply.getString("status"));
                                 
-                                assertNotNull(reply.getArray("results"));
-                                assertEquals(3, reply.getArray("results").size());
+                                assertNotNull(reply.getJsonArray("results"));
+                                assertEquals(3, reply.getJsonArray("results").size());
                                 
                                 testComplete();
                             }
@@ -388,9 +366,9 @@ public class TinkerpopModuleIntegrationTests extends TestVerticle {
                             public void handle(Message<JsonObject> message) {
                                 JsonObject reply = message.body();
                                 assertEquals("ok", reply.getString("status"));
-                                assertNotNull(reply.getArray("keys"));
-                                assertEquals(1, reply.getArray("keys").size());
-                                assertEquals("name", reply.getArray("keys").get(0));
+                                assertNotNull(reply.getJsonArray("keys"));
+                                assertEquals(1, reply.getJsonArray("keys").size());
+                                assertEquals("name", reply.getJsonArray("keys").get(0));
                                 
                                 JsonObject dropKeyIndex = new JsonObject()
                                         .putString("action", "dropKeyIndex")
@@ -416,35 +394,35 @@ public class TinkerpopModuleIntegrationTests extends TestVerticle {
     
     private JsonObject getNeo4jConfig() {
         JsonObject neo4jConfig = new JsonObject();
-        neo4jConfig.putString(
+        neo4jConfig.put(
                 "blueprints.graph", "com.tinkerpop.blueprints.impls.neo4j.Neo4jGraph");
-        neo4jConfig.putString("blueprints.neo4j.directory", tempFolder.getRoot().getPath());
+        neo4jConfig.put("blueprints.neo4j.directory", tempFolder.getRoot().getPath());
 
         JsonObject config = new JsonObject();
-        config.putString("address", "test.persistor");
-        config.putObject("tinkerpopConfig", neo4jConfig);
+        config.put("address", "test.persistor");
+        config.put("tinkerpopConfig", neo4jConfig);
         
         return config;
-    }
+    }*/
     
     private JsonObject getOrientDbConfig() {
         JsonObject orientDbConfig = new JsonObject();
-        orientDbConfig.putString(
+        orientDbConfig.put(
                 "blueprints.graph", "com.tinkerpop.blueprints.impls.orient.OrientGraph");
         //orientDbConfig.putString("blueprints.orientdb.url", "remote:" + "localhost/rds");
-        orientDbConfig.putString("blueprints.orientdb.url", "plocal:" + "D://database/rds");
+        orientDbConfig.put("blueprints.orientdb.url", "plocal:" + "D://database/rds");
 
         // TODO: Add your own user here in <orientdb-location>/config/orientdb-server-config.xml
-        orientDbConfig.putString("blueprints.orientdb.username", "root");
-        orientDbConfig.putString("blueprints.orientdb.password", "rds");
+        orientDbConfig.put("blueprints.orientdb.username", "root");
+        orientDbConfig.put("blueprints.orientdb.password", "root");
 
         // New configuration options (available in v1.6.0-SNAPSHOT).
-        orientDbConfig.putBoolean("blueprints.orientdb.saveOriginalIds", true);
-        orientDbConfig.putBoolean("blueprints.orientdb.lightweightEdges", true);
+        orientDbConfig.put("blueprints.orientdb.saveOriginalIds", true);
+        orientDbConfig.put("blueprints.orientdb.lightweightEdges", true);
         
         JsonObject config = new JsonObject();
-        config.putString("address", "test.persistor");
-        config.putObject("tinkerpopConfig", orientDbConfig);
+        config.put("address", "test.persistor");
+        config.put("tinkerpopConfig", orientDbConfig);
         
         return config;        
     }
@@ -459,4 +437,5 @@ public class TinkerpopModuleIntegrationTests extends TestVerticle {
         }
         return new JsonObject(jsonData);
     }
+
 }
