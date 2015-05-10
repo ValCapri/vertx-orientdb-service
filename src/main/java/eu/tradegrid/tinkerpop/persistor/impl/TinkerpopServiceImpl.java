@@ -16,6 +16,7 @@
 
 package eu.tradegrid.tinkerpop.persistor.impl;
 
+import com.orientechnologies.orient.graph.gremlin.OCommandGremlin;
 import com.tinkerpop.blueprints.*;
 import com.tinkerpop.blueprints.impls.orient.OrientGraph;
 import com.tinkerpop.blueprints.impls.orient.OrientGraphFactory;
@@ -31,6 +32,7 @@ import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.impl.LoggerFactory;
+import org.apache.commons.configuration.MapConfiguration;
 
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
@@ -53,9 +55,9 @@ public class TinkerpopServiceImpl implements TinkerpopService {
 
     private final Vertx vertx;
     private JsonObject tinkerpopConfig;
-    protected JsonUtility jsonUtility;
+    private JsonUtility jsonUtility;
     
-    protected ConcurrentHashMap<String, Pipe<Element, Object>> queryCache;
+    private ConcurrentHashMap<String, Pipe<Element, Object>> queryCache;
     private Logger logger = LoggerFactory.getLogger(TinkerpopServiceImpl.class);
     private OrientGraph graph;
 
@@ -75,8 +77,7 @@ public class TinkerpopServiceImpl implements TinkerpopService {
 
         logger.info("TinkerpopServiceImpl module started");
 
-        OrientGraphFactory orientGraphFactory = new OrientGraphFactory(tinkerpopConfig.getString("url"),tinkerpopConfig.getString("username"),tinkerpopConfig.getString("password"));
-        graph = orientGraphFactory.getTx();
+        graph = new OrientGraph(new MapConfiguration(tinkerpopConfig.getMap()));
     }
     
     /**
@@ -84,6 +85,7 @@ public class TinkerpopServiceImpl implements TinkerpopService {
      */
     @Override
     public void stop() {
+        graph.shutdown();
         logger.info("TinkerpopServiceImpl module stopped");
     }
     
@@ -150,6 +152,7 @@ public class TinkerpopServiceImpl implements TinkerpopService {
         JsonArray verticesJson = message.getJsonArray("vertices");
         if (verticesJson == null || verticesJson.size() == 0) {
             resultHandler.handle(Future.failedFuture(new Exception("Action 'addVertex': No vertex data supplied.")));
+            return;
         }
         
         Vertex vertex;
@@ -195,21 +198,12 @@ public class TinkerpopServiceImpl implements TinkerpopService {
      */
     @Override
     @SuppressWarnings("unchecked")
-    public void query(JsonObject message, Handler<AsyncResult<JsonObject>> resultHandler) {
-        String starts = message.getString("starts", "Vertex");
-        Object id = null;
-
-        try {
-            id = getMandatoryValue(message, "_id");
-        } catch (Exception e) {
-            resultHandler.handle(Future.failedFuture(e));
-        }
-
+    public void queryWithId(String id, String starts, String query, boolean cache, Handler<AsyncResult<JsonObject>> resultHandler) {
         if (id == null) {
+            resultHandler.handle(Future.failedFuture("id connot be null"));
             return;
         }
 
-        String query = message.getString("query");
         if (query == null) {
             resultHandler.handle(Future.failedFuture(new Exception("Action 'query': No query specified.")));
             return;
@@ -242,7 +236,7 @@ public class TinkerpopServiceImpl implements TinkerpopService {
                 return;
             }
 
-            if (message.getBoolean("cache", true)) {
+            if (cache) {
                 queryCache.put(query, pipe);
             }
         }
@@ -264,6 +258,36 @@ public class TinkerpopServiceImpl implements TinkerpopService {
     }
 
     /**
+     *
+     * @param query
+     * @param resultHandler
+     */
+    public void queryGremlin(String query, Handler<AsyncResult<JsonObject>> resultHandler) {
+        Object results = graph.command(new OCommandGremlin(query)).execute();
+        JsonArray jsonArray = null;
+
+        if (results instanceof Iterable) {
+            Iterable iterable = (Iterable)results;
+            try {
+                jsonArray = jsonUtility.serializeElements(iterable);
+            } catch (IOException e) {
+                resultHandler.handle(Future.failedFuture(e));
+            }
+        } else if (results instanceof Element) {
+            Element element = (Element) results;
+            try {
+                jsonArray = new JsonArray();
+                jsonArray.add(jsonUtility.serializeElement(element));
+            } catch (IOException e) {
+                resultHandler.handle(Future.failedFuture(e));
+            }
+        }
+
+        JsonObject reply = new JsonObject().put("results",jsonArray);
+        resultHandler.handle(Future.succeededFuture(reply));
+    }
+
+    /**
      * Retrieve one or more vertices from the db in a single call. The {@link Message}
      * may contain optional 'key' and a 'value' fields to filter only on those vertices that
      * have the specified key/value pair.<p/>
@@ -272,7 +296,10 @@ public class TinkerpopServiceImpl implements TinkerpopService {
      * @param graph the Tinkerpop graph that is used to communicate with the underlying graphdb
      */
     @Override
-    public void getVertices(String key, Object value, Handler<AsyncResult<JsonObject>> resultHandler) {
+    public void getVertices(JsonObject message, Handler<AsyncResult<JsonObject>> resultHandler) {
+        String key = message.getString("key");
+        Object value = message.getValue("value");
+
         JsonArray verticesJson;
         try {
             if (key == null) {

@@ -41,9 +41,11 @@ public interface TinkerpopService {
     void addVertex(JsonObject message, Handler<AsyncResult<JsonObject>> resultHandler);
 
     @SuppressWarnings("unchecked")
-    void query(JsonObject message, Handler<AsyncResult<JsonObject>> resultHandler);
+    void queryWithId(String id, String starts, String query, boolean cache, Handler<AsyncResult<JsonObject>> resultHandler);
 
-    void getVertices(String key, Object value, Handler<AsyncResult<JsonObject>> resultHandler);
+    void queryGremlin(String query, Handler<AsyncResult<JsonObject>> resultHandler);
+
+    void getVertices(JsonObject message, Handler<AsyncResult<JsonObject>> resultHandler);
 
     void getVerticesOfClass(String aClass, Handler<AsyncResult<JsonObject>> resultHandler);
 
