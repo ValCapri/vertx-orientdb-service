@@ -21,8 +21,11 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
+import java.util.Iterator;
 import java.util.List;
 
+import com.tinkerpop.blueprints.impls.orient.OrientDynaElementIterable;
+import com.tinkerpop.blueprints.impls.orient.OrientElement;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import org.codehaus.jettison.json.JSONArray;
@@ -124,6 +127,28 @@ public class JsonUtility {
         }
         
         return new JsonArray(results.toString());
+    }
+
+    public JsonObject convertOrientDynaElementIterableToJson(OrientDynaElementIterable iterable) throws IOException {
+        JsonArray vertices = new JsonArray();
+        JsonArray edges = new JsonArray();
+        for (Object anIterable : iterable) {
+            if (anIterable instanceof Vertex) {
+                vertices.add(serializeElement((Vertex)anIterable));
+            } else if (anIterable instanceof Edge) {
+                edges.add(serializeElement((Edge)anIterable));
+            }
+        }
+
+        JsonObject graphJsonObject = new JsonObject();
+
+        if (vertices.size() > 0) {
+            graphJsonObject.put("vertices",vertices);
+        } else if(edges.size() > 0) {
+            graphJsonObject.put("edges",edges);
+        }
+
+        return new JsonObject().put("graph",graphJsonObject);
     }
     
     @SuppressWarnings("unchecked")

@@ -18,6 +18,7 @@ package eu.tradegrid.tinkerpop.persistor.impl;
 
 import com.orientechnologies.orient.graph.gremlin.OCommandGremlin;
 import com.tinkerpop.blueprints.*;
+import com.tinkerpop.blueprints.impls.orient.OrientDynaElementIterable;
 import com.tinkerpop.blueprints.impls.orient.OrientGraph;
 import com.tinkerpop.blueprints.impls.orient.OrientGraphFactory;
 import com.tinkerpop.gremlin.groovy.Gremlin;
@@ -264,26 +265,29 @@ public class TinkerpopServiceImpl implements TinkerpopService {
      */
     public void queryGremlin(String query, Handler<AsyncResult<JsonObject>> resultHandler) {
         Object results = graph.command(new OCommandGremlin(query)).execute();
-        JsonArray jsonArray = null;
+        JsonObject reply = null;
 
-        if (results instanceof Iterable) {
-            Iterable iterable = (Iterable)results;
+        if (results instanceof OrientDynaElementIterable) {
             try {
-                jsonArray = jsonUtility.serializeElements(iterable);
+                reply = jsonUtility.convertOrientDynaElementIterableToJson((OrientDynaElementIterable) results);
             } catch (IOException e) {
                 resultHandler.handle(Future.failedFuture(e));
             }
         } else if (results instanceof Element) {
-            Element element = (Element) results;
             try {
-                jsonArray = new JsonArray();
-                jsonArray.add(jsonUtility.serializeElement(element));
+                JsonObject graphJsonObject = new JsonObject();
+                if (results instanceof Vertex) {
+                    graphJsonObject.put("vertices", new JsonArray().add(jsonUtility.serializeElement((Vertex)results)));
+                } else if (results instanceof Edge) {
+                    graphJsonObject.put("vertices", new JsonArray().add(jsonUtility.serializeElement((Edge)results)));
+                }
+
+                reply = new JsonObject().put("graph",graphJsonObject);
             } catch (IOException e) {
                 resultHandler.handle(Future.failedFuture(e));
             }
         }
 
-        JsonObject reply = new JsonObject().put("results",jsonArray);
         resultHandler.handle(Future.succeededFuture(reply));
     }
 
