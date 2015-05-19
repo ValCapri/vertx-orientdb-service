@@ -42,7 +42,7 @@ dependencies {
     compile "io.vertx:vertx-service-factory:$vertxVersion"
     compile "io.vertx:vertx-codegen:$vertxVersion"
     compile "io.vertx:vertx-docgen:$vertxVersion"
-    compile "io.vertx:vertx-metrics:$vertxVersion"
+    compile "io.vertx:vertx-dropwizard-metrics:$vertxVersion"
     compile "io.vertx:vertx-reactive-streams:$vertxVersion"
     compile "io.vertx:vertx-auth-service:$vertxVersion"
     compile "io.vertx:vertx-apex:$vertxVersion"
