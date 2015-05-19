@@ -4,7 +4,7 @@ compileJava {
 }
 
 ext {
-    vertxVersion = '3.0.0-SNAPSHOT'
+    vertxVersion = '3.0.0-milestone5'
     slf4jVersion = '1.7.12'
     junitVersion = '4.12'
     jsonUnitTestVersion = '1.5.3'
