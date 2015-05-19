@@ -49,17 +49,17 @@ public interface TinkerpopService {
 
     void getVerticesOfClass(String aClass, Handler<AsyncResult<JsonObject>> resultHandler);
 
-    void getVertex(JsonObject message, Handler<AsyncResult<JsonObject>> resultHandler);
+    void getVertex(String id, Handler<AsyncResult<JsonObject>> resultHandler);
 
-    void removeVertex(JsonObject message, Handler<AsyncResult<JsonObject>> resultHandler);
+    void removeVertex(String id, Handler<AsyncResult<JsonObject>> resultHandler);
 
     void addEdge(JsonObject message, Handler<AsyncResult<JsonObject>> resultHandler);
 
-    void getEdge(JsonObject message, Handler<AsyncResult<JsonObject>> resultHandler);
+    void getEdge(String id, Handler<AsyncResult<JsonObject>> resultHandler);
 
     void getEdges(JsonObject message, Handler<AsyncResult<JsonObject>> resultHandler);
 
-    void removeEdge(JsonObject message, Handler<AsyncResult<JsonObject>> resultHandler);
+    void removeEdge(String id, Handler<AsyncResult<JsonObject>> resultHandler);
 
     void createKeyIndex(JsonObject message, Handler<AsyncResult<JsonObject>> resultHandler);
 

@@ -16,6 +16,7 @@
 
 package eu.tradegrid.tinkerpop.persistor.impl;
 
+import com.orientechnologies.orient.core.id.ORecordId;
 import com.orientechnologies.orient.graph.gremlin.OCommandGremlin;
 import com.tinkerpop.blueprints.*;
 import com.tinkerpop.blueprints.impls.orient.OrientDynaElementIterable;
@@ -38,6 +39,7 @@ import org.apache.commons.configuration.MapConfiguration;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -362,8 +364,8 @@ public class TinkerpopServiceImpl implements TinkerpopService {
      * @param graph the Tinkerpop graph that is used to communicate with the underlying graphdb
      */
     @Override
-    public void getVertex(JsonObject message, Handler<AsyncResult<JsonObject>> resultHandler) {
-        getElement(message, resultHandler, "Vertex");
+    public void getVertex(String id, Handler<AsyncResult<JsonObject>> resultHandler) {
+        getElement(id, resultHandler, "Vertex");
     }
     
     /**
@@ -374,8 +376,8 @@ public class TinkerpopServiceImpl implements TinkerpopService {
      * @param graph the Tinkerpop graph that is used to communicate with the underlying graphdb
      */
     @Override
-    public void removeVertex(JsonObject message, Handler<AsyncResult<JsonObject>> resultHandler) {
-        removeElement(message, resultHandler, "Vertex");
+    public void removeVertex(String id, Handler<AsyncResult<JsonObject>> resultHandler) {
+        removeElement(id, resultHandler, "Vertex");
     }
     
     /**
@@ -431,8 +433,8 @@ public class TinkerpopServiceImpl implements TinkerpopService {
         if (logger.isDebugEnabled()) {
             logger.debug("Added Edge with Id: " + edge.getId().toString());
         }
-        
-        JsonObject reply = new JsonObject().put("_id", edge.getId());
+
+        JsonObject reply = new JsonObject().put("_id", edge.getId().toString());
 
         resultHandler.handle(Future.succeededFuture(reply));
     }
@@ -444,8 +446,8 @@ public class TinkerpopServiceImpl implements TinkerpopService {
      * @param graph the Tinkerpop graph that is used to communicate with the underlying graphdb
      */
     @Override
-    public void getEdge(JsonObject message, Handler<AsyncResult<JsonObject>> resultHandler) {
-        getElement(message, resultHandler, "Edge");
+    public void getEdge(String id, Handler<AsyncResult<JsonObject>> resultHandler) {
+        getElement(id, resultHandler, "Edge");
     }
     
     /**
@@ -492,8 +494,8 @@ public class TinkerpopServiceImpl implements TinkerpopService {
      * @param graph the Tinkerpop graph that is used to communicate with the underlying graphdb
      */
     @Override
-    public void removeEdge(JsonObject message, Handler<AsyncResult<JsonObject>> resultHandler) {
-        removeElement(message, resultHandler, "Edge");
+    public void removeEdge(String id, Handler<AsyncResult<JsonObject>> resultHandler) {
+        removeElement(id, resultHandler, "Edge");
     }
         
     /**
@@ -631,15 +633,9 @@ public class TinkerpopServiceImpl implements TinkerpopService {
         return parameters;
     }
 
-    private void getElement(JsonObject message, Handler<AsyncResult<JsonObject>> resultHandler, String elementType) {
-
-        Object id = null;
-        try {
-            id = getMandatoryValue(message, "_id");
-        } catch (Exception e) {
-            resultHandler.handle(Future.failedFuture(e));
-        }
+    private void getElement(String id, Handler<AsyncResult<JsonObject>> resultHandler, String elementType) {
         if (id == null) {
+            resultHandler.handle(Future.failedFuture("no id specified for getElement"));
             return;
         }
         
@@ -661,7 +657,7 @@ public class TinkerpopServiceImpl implements TinkerpopService {
             return;
         }
         
-        String arrayElement = elementType == "Vertex" ? "vertices" : "edges";
+        String arrayElement = Objects.equals(elementType, "Vertex") ? "vertices" : "edges";
         JsonObject reply = new JsonObject().put("graph", new JsonObject()
                 .put("mode", jsonUtility.getGraphSONMode())
                 .put(arrayElement, new JsonArray()
@@ -670,15 +666,9 @@ public class TinkerpopServiceImpl implements TinkerpopService {
          resultHandler.handle(Future.succeededFuture(reply)); 
     }
     
-    private void removeElement(JsonObject message, Handler<AsyncResult<JsonObject>> resultHandler, String elementType) {
-
-        Object id = null;
-        try {
-            id = getMandatoryValue(message, "_id");
-        } catch (Exception e) {
-            resultHandler.handle(Future.failedFuture(e));
-        }
+    private void removeElement(String id, Handler<AsyncResult<JsonObject>> resultHandler, String elementType) {
         if (id == null) {
+            resultHandler.handle(Future.failedFuture("no id specified for getElement"));
             return;
         }
         
